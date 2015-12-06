@@ -1,0 +1,254 @@
+neckbottle detect
+can program many devices from main MCU using default communication path
+
+bootloader compuesto por boot+uploader
+la ram se sobreescribe durante el proceso de bootloader, se lleve a cabo o no cualquier operación
+una trama de envio se responde con una trama de respuesta, no puede haber más tramas de envio que de respuesta o al revés
+
+http://dillinger.io/
+
+UKBP-universal-bootloader-protocol
+==================================
+
+### Universal K Bootloader Protocol for MCUs ###
+
+      _   _ _  _____ ___ 
+     | | | | |/ / _ ) _ \
+     | |_| | ' <| _ \  _/
+      \___/|_|\_\___/_| 
+
+Project developed by [Kwendenarmo](http://akornsys-rdi.net/ "kwendenarmo") (<kwendenarmo@akornsys-rdi.net>).  
+This project is under GPLv3 licence. See COPYING file.  
+See CHANGELOG file to check the history of dates, versions and changes.  
+README.md file.
+
+## What is it ##
+
+*UKBP* is a new universal system for loading firmware on microcontrollers. 
+Arises from the need of an independent system both the manufacturing and communications module that is to be used. 
+It also is designed as routine for greater flexibility and supports a large set of instructions and customizations.
+
+## Features ##
+
+*UKBP* has the following features:
+
+* System designed to be versatile, flexible and robust. Available in two versions (depending on design requirements).
+    - Small bootloader. Extends the functionality with an advanced bootloader protocol and design-time advantages.
+    - Fail-safe bootloader. This version is safe against possible reboots or communication failures during the firmware update. It can also keep your old firmware.
+* The bootloader is structured into independent blocks, giving it more power.
+* Extends the life of the flash/eeprom, minimizing the number of writes.
+* Deployable on any microcontroller capable of self-writing, regardless of your manufacturer or communications module that have.
+* Designed to function as routine can be invoked at program startup or any time during runtime.
+* The communications protocol allows encapsulated in other transport layers.
+* The bootloader can be reprogrammed himself.
+* Allows management of a GPIO to indicate that the boot loader is active.
+* The reset and interrupt vectors are fully customizable, directing them to position that the user desires.
+* The communication protocol has timeout detection preconfigured to one second.
+* Sets the fastest available communication automatically.
+* Allows to use in professional and high performance areas.
+
+## Latest version ##
+
+Visit the UKBP main web site for the latest news and downloads:  
+<http://devip.kwendenarmo.es/projects/ukbp>  
+On this website you will also find all the documentation and development information.
+
+To download the very latest source code, you can do it from GitHub:  
+``git clone https://github.com/kwendenarmo/ukbp-universal-bootloader-protocol.git``
+
+## Installation and use ##
+
+See INSTALL file for instructions to follow.
+
+## Known bugs ##
+
+To see the list of known bugs of this software or if you've found one and want to report it, see BUGS file.
+
+
+
+UKBP Communication protocol
+=========
+
+Introduction.
+---
+
+ASDF
+
+Communication interface.
+---
+
+The communication between the programmer and de host (PC) is done over USB.
+
+Frame format.
+---
+
+All commands and answers shares this frame format.
+
+| Frame fields |
+| :---: |
+| HEADER |
+| SEQUENCE |
+| DESTINATION |
+| TOKEN |
+| COMMAND |
+| SIZE |
+| DATA |
+| CHECKSUM |
+| FOOTER |
+DATA field may not be present if the SIZE is zero.
+
+The format of the frame is constructed with three parts:
+ - *Frame Delimiter*: HEADER and FOOTER
+ - *Information frame*: SEQUENCE, DESTINATION, TOKEN and CHECKSUM
+ - *Body frame*: COMMAND, SIZE and DATA
+
+| Parameter | Size | Description |
+| :--- | :--- | :--- |
+| HEADER | 1 byte | Always `0x0E` |
+| SEQUENCE | 1 byte | Incremental counter for ID purposes. Returns to zero after overflow. In answers, use the sequence number of the command to which it responds. |
+| DESTINATION | 1 byte | Flag that identifies the MCU to program. |
+| TOKEN | 1 byte | Message direction. |
+| COMMAND | 1 byte | Instruction to execute. |
+| SIZE | 2 bytes | Size in bytes of the DATA. |
+| DATA | SIZE bytes | Arguments for COMMAND. |
+| CHECKSUM | 2 bytes | Frame verification system. |
+| FOOTER | 1 byte | Always `0xE0` |
+
+The host (PC/programmer) sends the orders, the MCU responds with answers. The difference between them is the token and the *body frame* content. Each command must be responded with a answer. The MCU only can send answers to the host and can't start the communication.
+
+Protocol layer state table.
+---
+
+The following table describes the behavior of software to handle each of the frames, both by the host (PC/programmer) and by the MCU.
+
+| Current state | Event | Condition | Action | Next state |
+| :--- | :--- | :--- | :--- | :--- |
+| Start | Read byte from input buffer | Received byte == HEADER | N/A | Get sequence |
+| Start | Read byte from input buffer | Received byte != HEADER | N/A | Wait footer |
+| Start | Timeout | N/A | Exit with error | None |
+| Get sequence | Read byte from input buffer | Received byte == last SEQUENCE +1 | N/A | Get destination |
+| Get sequence | Read byte from input buffer | Received byte != last SEQUENCE +1 | N/A | Wait footer |
+| Get sequence | Timeout | N/A | Exit with error | None |
+| Get destination | Read byte from input buffer | Received DESTINATION byte is valid | Set destination path | Get token |
+| Get destination | Read byte from input buffer | Received DESTINATION byte isn't valid | N/A | Wait footer |
+| Get destination | Timeout | N/A | Exit with error | None |
+| Get token | Read byte from input buffer | Received TOKEN byte is valid | N/A | Get command |
+| Get token | Read byte from input buffer | Received TOKEN byte isn't valid | N/A | Wait footer |
+| Get token | Timeout | N/A | Exit with error | None |
+| Get command | Read byte from input buffer | N/A | Store COMMAND | Get size MSB |
+| Get command | Timeout | N/A | Exit with error | None |
+| Get size MSB | Read byte from input buffer | N/A | Store SIZE byte | Get size LSB |
+| Get size MSB | Timeout | N/A | Exit with error | None |
+| Get size LSB | Read byte from input buffer | N/A | Calculate SIZE word | There are data? |
+| Get size LSB | Timeout | N/A | Exit with error | None |
+| There are data? | Evaluate | SIZE != 0 | N/A | Get data |
+| There are data? | Evaluate | SIZE == 0 | N/A | Get checksum MSB |
+| Get data | Read byte from input buffer | Number of bytes read == SIZE | Store DATA byte | Get checksum MSB |
+| Get data | Read byte from input buffer | Number of bytes read < SIZE | Store DATA byte | Get data |
+| Get data | Timeout | N/A | Exit with error | None |
+| Get checksum MSB | Read byte from input buffer | N/A | Store CHECKSUM btye | Get checksum LSB |
+| Get checksum MSB | Timeout | N/A | Exit with error | None |
+| Get checksum LSB | Read byte from input buffer | N/A | Calculate CHECKSUM word | Get footer |
+| Get checksum LSB | Timeout | N/A | Exit with error | None |
+| Get footer | Read byte from input buffer | Received byte == FOOTER | Exit successfully and handle packet | N/A |
+| Get footer | Read byte from input buffer | Received byte != FOOTER | N/A | Wait footer |
+| Get footer | Timeout | N/A | Exit with error | None |
+| Wait footer | Read byte from input buffer |  Received byte == FOOTER | N/A | Start |
+| Wait footer | Read byte from input buffer |  Received byte != FOOTER | N/A | Wait footer |
+| Wait footer | Timeout | N/A | Exit with error | None |
+
+
+
+ header seq     dest    token   mode    size    data    cksum   footer
+ 0E     00      00      A5      71      01      01      D5      E0
+
+    dest    1 byte  flag that identifies the MCU to program.
+                        0x00 main MCU (programmer to main MCU or viceversa)
+                        0x20 append MCU (bypass main MCU and use it as gateway, data from append device is DATA on current packet)
+    token   1 byte  message direction.
+                        0xA5 programmer to MCU
+                        0x5A MCU to programmer
+ mode   ->      0x31 sign in                                    command         answer w/ data
+ 		0x32 ACK                                        answer
+		0x33 NCK                                        answer
+		0x34 NCK CRC error                              answer
+		0x35 NCK wrong lenght                           answer
+		0x36 NCK timeout                                answer
+		0x37 sign out                                   command         answer wo/ data
+		0x3A ACK + DATA                                 answer
+		0x3B read on append device                      command         answer w/ data
+		0x3C write on append device                     command         answer wo/ data
+		0x71 read parameter                             command         answer w/ data
+		0x72 read user code                             command         answer w/ data
+		0x73 read user eeprom                           command         answer w/ data
+		0x74 read uC fuses                              command         answer w/ data
+		0xF1 write parameter                            command         answer wo/ data
+		0xF2 write user code                            command         answer wo/ data
+		0xF3 write user eeprom                          command         answer wo/ data
+		0xF4 write uC fuses                             command         answer wo/ data
+		0xFA erase all user space                       command         answer wo/ data
+		0xFB erase all eeprom                           command         answer wo/ data
+ size   ->      number of bytes in DATA
+ data   ->      arguments for MODE
+ 		for 0x31 to 0x37 -> NO-DATA
+		for 0x3A -> ANSWER-DATA
+		for 0x3B -> DEVICE-ID
+		for 0x3C -> DEVICE-ID + DATAPACKET
+		for 0x71 -> PARAMETER-ID
+		for 0x72 -> ADDRESS
+		for 0x73 -> ADDRESS
+		for 0x74 -> NO-DATA
+		for 0xF1 -> PARAMETER-ID + DATAPACKET
+		for 0xF2 -> ADDRESS + WORD
+		for 0xF3 -> ADDRESS + WORD
+		for 0xF4 -> FUSES
+		for 0xFA -> NO-DATA
+		for 0xFB -> NO-DATA
+		NO-DATA:
+			no bytes, size = 0x00
+		ANSWER-DATA:
+			for 0x31 -> BUS-SPEED
+			for 0x3B -> DATAPACKET
+			for 0x71 -> DATAPACKET
+			for 0x72 -> WORD
+			for 0x73 -> WORD
+			for 0x74 -> FUSES
+		BUS-SPEED:
+			one byte, for USART:
+			0x00 110        baud
+			0x01 300        baud
+			0x02 600        baud
+			0x03 1200       baud
+			0x04 2400       baud
+			0x05 4800       baud
+			0x06 9600       baud (default in sign in)
+			0x07 14400      baud
+			0x08 19200      baud
+			0x09 28800      baud
+			0x0A 38400      baud
+			0x0B 56000      baud
+			0x0C 57600      baud
+			0x0D 115200     baud
+			0x0E 128000     baud
+			0x0F 153600     baud
+			0x10 230400     baud
+			0x11 256000     baud
+			0x12 460800     baud
+			0x13 921600     baud
+		DEVICE-ID:
+			one byte
+		DATAPACKET:
+			sixteen bytes
+ 		PARAMETER-ID:
+			one byte:
+			0x01 bootloader version
+			0x02 code tag
+			0x03 uC ID
+		ADDRESS:
+			four bytes
+		WORD:
+			one, two or four bytes (according uC)
+		FUSES:
+			one to four bytes (according uC)
+ cksum  ->      XOR of all bytes (except header, footer and cksum)
+
